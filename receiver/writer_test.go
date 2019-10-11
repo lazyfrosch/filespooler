@@ -9,10 +9,7 @@ import (
 )
 
 func getTempDir() string {
-	temp := os.Getenv("TEMP")
-	if temp == "" {
-		temp = "/tmp"
-	}
+	temp := os.TempDir()
 
 	tempPath, err := ioutil.TempDir(temp, "filespool")
 	if err != nil {

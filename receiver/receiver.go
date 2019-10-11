@@ -1,12 +1,20 @@
 package receiver
 
 import (
+	"bufio"
+	"encoding/gob"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
+)
+
+const (
+	ReadTimeout          = 1
+	CommunicationTimeout = 5 // TODO: Raise
 )
 
 type Receiver struct {
@@ -51,14 +59,15 @@ func (r *Receiver) Serve() {
 		case <-r.quit:
 			log.Println("Shutting down listener")
 			_ = r.listener.Close()
+			r.running = false
 			handlers.Wait()
 			close(r.exited)
-			r.running = false
 			return
 		default:
 			err := r.listener.SetDeadline(time.Now().Add(1e9))
 			if err != nil {
-				log.Fatal("Could not setup deadline: ", err.Error())
+				log.Print("Could not setup deadline: ", err.Error())
+				return
 			}
 
 			conn, err := r.listener.Accept()
@@ -80,15 +89,86 @@ func (r *Receiver) Serve() {
 }
 
 func (r *Receiver) handleConnection(conn net.Conn) {
-	log.Println("Accepted connection from", conn.RemoteAddr())
+	remote := conn.RemoteAddr()
+	log.Println("Accepted connection from", remote)
+
+	timer := time.NewTimer(CommunicationTimeout * time.Second)
 
 	defer func() {
-		log.Println("Closing connection from", conn.RemoteAddr())
+		log.Println("Closing connection from", remote)
 		_ = conn.Close()
+		timer.Stop()
 	}()
 
-	// TODO: do something useful
-	_, _ = io.Copy(conn, conn)
+	rw := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
+
+	for {
+		select {
+		case <-r.quit:
+			// The receiver wants to stop
+			return
+		case <-timer.C:
+			// Timeout on connection
+			log.Printf("[%s] No data received in %d seconds. Disconnecting", remote, CommunicationTimeout)
+			return
+		default:
+			err := conn.SetReadDeadline(time.Now().Add(ReadTimeout * time.Second))
+			if err != nil {
+				log.Printf("[%s] Could not set deadline: %s", remote, err)
+				return
+			}
+
+			cmd, err := rw.ReadString('\n')
+			switch {
+			case err == io.EOF:
+				log.Printf("[%s] Connection EOF", remote)
+				return
+			case err != nil:
+				if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
+					// Timeout from deadline, retry read in next loop
+					continue
+				}
+				log.Printf("[%s] Could not read from stream: %s", remote, err)
+				return
+			}
+			cmd = strings.Trim(cmd, "\n ")
+			switch cmd {
+			case "SEND_FILE":
+				err := r.handleSendFile(conn, rw)
+				if err != nil {
+					log.Print(err)
+					return
+				}
+			case "NOOP":
+			case "KEEPALIVE":
+				// resetting timeout
+				timer.Reset(CommunicationTimeout * time.Second)
+			default:
+				log.Printf("[%s] Unknown command %s", remote, cmd)
+			}
+		}
+	}
+}
+
+func (r *Receiver) handleSendFile(conn net.Conn, rw *bufio.ReadWriter) error {
+	remote := conn.RemoteAddr()
+	file := new(FileData)
+	dec := gob.NewDecoder(rw)
+	err := dec.Decode(file)
+	if err != nil {
+		return fmt.Errorf("[%s] Could not decode file: %s", remote, err)
+	}
+
+	log.Printf("[%s] Received file %s", remote, file.Name)
+
+	err = r.writer.WriteFile(file)
+	if err != nil {
+		_, _ = rw.WriteString("ERR\n")
+		return fmt.Errorf("[%s] Could not write file: %s", remote, err)
+	}
+
+	_, _ = rw.WriteString("OK\n")
+	return nil
 }
 
 func (r *Receiver) Close() {
