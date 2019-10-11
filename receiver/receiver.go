@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	ReadTimeout          = 1
-	CommunicationTimeout = 5 // TODO: Raise
+	ReadTimeout          = 5
+	CommunicationTimeout = 60
 )
 
 type Receiver struct {

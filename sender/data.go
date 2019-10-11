@@ -6,8 +6,8 @@ import (
 )
 
 type FileData struct {
-	name    string
-	content []byte
+	RawName    string
+	RawContent []byte
 }
 
 func NewFileData(name string) *FileData {
@@ -24,17 +24,17 @@ func DecodeGobFileData(reader io.Reader) (*FileData, error) {
 }
 
 func (f *FileData) Name() string {
-	return f.name
+	return f.RawName
 }
 
 func (f *FileData) Content() []byte {
-	return f.content
+	return f.RawContent
 }
 
 func (f *FileData) SetContent(content []byte) {
-	f.content = content
+	f.RawContent = content
 }
 
 func (f *FileData) Size() int {
-	return len(f.content)
+	return len(f.RawContent)
 }

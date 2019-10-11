@@ -2,3 +2,6 @@
 .*.sw[op]
 *~
 /.idea/
+
+## Testing artifacts
+/data/

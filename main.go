@@ -3,12 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/lazyfrosch/filespool/receiver"
+	"github.com/lazyfrosch/filespool/sender"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
-
-	"github.com/lazyfrosch/filespool/receiver"
 )
 
 const (
@@ -70,7 +70,7 @@ func receiverCli() {
 func senderCli() {
 	cmd := flag.NewFlagSet(os.Args[0]+" sender", flag.ExitOnError)
 	connect := cmd.String("connect", "", "Send to this TCP address")
-	sourcePath := cmd.String("source", "/somepath", "Source path to read from")
+	sourcePath := cmd.String("source", "", "Source path to read from")
 
 	_ = cmd.Parse(os.Args[2:])
 
@@ -78,12 +78,42 @@ func senderCli() {
 		log.Fatalf("Found extra arguments: %v", flag.Args())
 	}
 
-	// TODO: fail when connect is empty!
+	if *connect == "" {
+		log.Fatal("Please specify --connect")
+	}
+	if *sourcePath == "" {
+		log.Fatal("Please specify --source")
+	}
 
 	log.Printf("Starting sender to %s", *connect)
 	log.Printf("Reading data from %s", *sourcePath)
 
-	// TODO: implement
+	r, err := sender.NewFileReader(*sourcePath)
+	if err != nil {
+		log.Fatal("Could not set up FileReader: ", err)
+	}
+
+	signals := make(chan os.Signal, 1)
+	quit := make(chan bool)
+	done := make(chan bool)
+
+	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT)
+
+	s := sender.NewSender(*connect, r)
+
+	go func() {
+		sig := <-signals
+		log.Printf("Got signal %v from OS", sig)
+		s.Stop()
+		close(quit)
+		done <- true
+	}()
+
+	s.Run()
+	_ = s.Close()
+
+	<-done
+	log.Println("Exiting sender")
 }
 
 func main() {
