@@ -2,6 +2,7 @@ package receiver
 
 import (
 	"fmt"
+	"github.com/lazyfrosch/filespool/sender"
 	"io/ioutil"
 	"os"
 	"path"
@@ -11,13 +12,8 @@ type FileWriter struct {
 	Path string
 }
 
-type FileData struct {
-	Name string
-	Content []byte
-}
-
 func NewFileWriter(path string) (*FileWriter, error) {
-	w := FileWriter{ Path: path }
+	w := FileWriter{Path: path}
 	err := w.init()
 	if err != nil {
 		return nil, err
@@ -38,14 +34,14 @@ func (w FileWriter) init() error {
 		return err
 	}
 
-	if ! info.IsDir() {
+	if !info.IsDir() {
 		return fmt.Errorf("target path %s exists and is not a directory", w.Path)
 	}
 
 	return nil
 }
 
-func (w FileWriter) WriteFile(f *FileData) error {
-	filePath := path.Join(w.Path, f.Name)
-	return ioutil.WriteFile(filePath, f.Content, 0644)
+func (w FileWriter) WriteFile(f *sender.FileData) error {
+	filePath := path.Join(w.Path, f.Name())
+	return ioutil.WriteFile(filePath, f.Content(), 0644)
 }

@@ -2,6 +2,7 @@ package receiver
 
 import (
 	"bytes"
+	"github.com/lazyfrosch/filespool/sender"
 	"io/ioutil"
 	"os"
 	"path"
@@ -39,10 +40,12 @@ func TestFileWriter(t *testing.T) {
 }
 
 func testWrite(t *testing.T, w *FileWriter, tempPath string, name string, content []byte) {
-	data := FileData{Name: name, Content: content}
+	data := sender.NewFileData(name)
+	data.SetContent(content)
+
 	filePath := path.Join(tempPath, name)
 
-	err := w.WriteFile(&data)
+	err := w.WriteFile(data)
 	if err != nil {
 		t.Fatal(err)
 	}

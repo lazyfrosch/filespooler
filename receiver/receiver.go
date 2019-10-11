@@ -2,8 +2,8 @@ package receiver
 
 import (
 	"bufio"
-	"encoding/gob"
 	"fmt"
+	"github.com/lazyfrosch/filespool/sender"
 	"io"
 	"log"
 	"net"
@@ -152,14 +152,12 @@ func (r *Receiver) handleConnection(conn net.Conn) {
 
 func (r *Receiver) handleSendFile(conn net.Conn, rw *bufio.ReadWriter) error {
 	remote := conn.RemoteAddr()
-	file := new(FileData)
-	dec := gob.NewDecoder(rw)
-	err := dec.Decode(file)
+	file, err := sender.DecodeGobFileData(rw)
 	if err != nil {
 		return fmt.Errorf("[%s] Could not decode file: %s", remote, err)
 	}
 
-	log.Printf("[%s] Received file %s", remote, file.Name)
+	log.Printf("[%s] Received file %s", remote, file.Name())
 
 	err = r.writer.WriteFile(file)
 	if err != nil {
