@@ -6,9 +6,11 @@ import (
 )
 
 func testBind(t *testing.T, addr string, open bool) *Receiver {
-	// TODO: temp path
-	w, err := NewFileWriter("/tmp/testing")
+	tempPath := getTempDir(t)
+
+	w, err := NewFileWriter(tempPath)
 	if err != nil {
+		cleanupTempDir()
 		t.Fatal("Could not setup FileWriter", err)
 	}
 
@@ -16,6 +18,7 @@ func testBind(t *testing.T, addr string, open bool) *Receiver {
 	if open {
 		err = r.Open()
 		if err != nil {
+			cleanupTempDir()
 			t.Fatal("Could not open receiver", err)
 		}
 	}
@@ -25,6 +28,7 @@ func testBind(t *testing.T, addr string, open bool) *Receiver {
 
 func TestReceiver(t *testing.T) {
 	r := testBind(t, ":12345", true)
+	defer cleanupTempDir()
 
 	go r.Serve()
 	time.Sleep(2)
@@ -32,6 +36,8 @@ func TestReceiver(t *testing.T) {
 }
 
 func TestBindFail(t *testing.T) {
+	defer cleanupTempDir()
+
 	r1 := testBind(t, ":12345", false)
 	err := r1.Open()
 	if err != nil {
@@ -47,7 +53,9 @@ func TestBindFail(t *testing.T) {
 }
 
 func TestMultipleAddresses(t *testing.T) {
-	addresses := []string{"[::1]:12345", "0.0.0.0:12346"}
+	defer cleanupTempDir()
+
+	addresses := []string{"[127.0.0.1]:12345", "0.0.0.0:12346"}
 	for _, addr := range addresses {
 		r := testBind(t, addr, true)
 		time.Sleep(1)

@@ -9,27 +9,31 @@ import (
 	"testing"
 )
 
-func getTempDir() string {
+var tempPath string
+
+func getTempDir(t *testing.T) string {
 	temp := os.TempDir()
+
+	cleanupTempDir()
 
 	tempPath, err := ioutil.TempDir(temp, "filespooler")
 	if err != nil {
-		panic(err)
+		t.Fatal("Could not create temp dir: ", err)
 	}
 
 	return tempPath
 }
 
-func cleanupTempDir(path string) {
-	err := os.RemoveAll(path)
-	if err != nil {
-		panic(err)
+func cleanupTempDir() {
+	if tempPath != "" {
+		_ = os.RemoveAll(tempPath)
+		tempPath = ""
 	}
 }
 
 func TestFileWriter(t *testing.T) {
-	tempPath := getTempDir()
-	defer cleanupTempDir(tempPath)
+	tempPath := getTempDir(t)
+	defer cleanupTempDir()
 
 	w, err := NewFileWriter(tempPath)
 	if err != nil {
