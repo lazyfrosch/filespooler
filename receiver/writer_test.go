@@ -2,7 +2,7 @@ package receiver
 
 import (
 	"bytes"
-	"github.com/lazyfrosch/filespool/sender"
+	"github.com/lazyfrosch/filespooler/sender"
 	"io/ioutil"
 	"os"
 	"path"
@@ -12,7 +12,7 @@ import (
 func getTempDir() string {
 	temp := os.TempDir()
 
-	tempPath, err := ioutil.TempDir(temp, "filespool")
+	tempPath, err := ioutil.TempDir(temp, "filespooler")
 	if err != nil {
 		panic(err)
 	}

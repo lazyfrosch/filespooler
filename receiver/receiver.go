@@ -3,7 +3,7 @@ package receiver
 import (
 	"bufio"
 	"fmt"
-	"github.com/lazyfrosch/filespool/sender"
+	"github.com/lazyfrosch/filespooler/sender"
 	"io"
 	"log"
 	"net"

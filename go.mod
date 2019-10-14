@@ -1,1 +1,1 @@
-module github.com/lazyfrosch/filespool
+module github.com/lazyfrosch/filespooler

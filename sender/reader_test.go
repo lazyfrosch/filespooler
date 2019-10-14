@@ -19,7 +19,7 @@ const (
 func createFixture(t *testing.T) string {
 	temp := os.TempDir()
 
-	tempPath, err := ioutil.TempDir(temp, "filespool")
+	tempPath, err := ioutil.TempDir(temp, "filespooler")
 	if err != nil {
 		t.Fatal("could not create temp path: ", err)
 	}

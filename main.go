@@ -3,8 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/lazyfrosch/filespool/receiver"
-	"github.com/lazyfrosch/filespool/sender"
+	"github.com/lazyfrosch/filespooler/receiver"
+	"github.com/lazyfrosch/filespooler/sender"
 	"log"
 	"os"
 	"os/signal"

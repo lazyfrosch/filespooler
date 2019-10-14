@@ -2,7 +2,7 @@ package receiver
 
 import (
 	"fmt"
-	"github.com/lazyfrosch/filespool/sender"
+	"github.com/lazyfrosch/filespooler/sender"
 	"io/ioutil"
 	"os"
 	"path"
