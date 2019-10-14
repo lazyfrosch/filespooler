@@ -16,19 +16,21 @@ const (
 	DefaultListen = ":5664"
 )
 
-func receiverCli() {
-	cmd := flag.NewFlagSet(os.Args[0]+" receiver", flag.ExitOnError)
+func receiverCli(cmdName string, args []string) error {
+	cmd := flag.NewFlagSet(cmdName+" receiver", flag.ContinueOnError)
 	listen := cmd.String("listen", DefaultListen, "Listen to this address")
 	targetPath := cmd.String("target", "", "Target path to write to")
 
-	_ = cmd.Parse(os.Args[2:])
+	if err := cmd.Parse(args); err != nil {
+		return err
+	}
 
 	if flag.NArg() > 0 {
-		log.Fatalf("Found extra arguments: %v", flag.Args())
+		return fmt.Errorf("found extra arguments: %v", flag.Args())
 	}
 
 	if *targetPath == "" {
-		log.Fatal("Please specify --target")
+		return fmt.Errorf("please specify --target")
 	}
 
 	log.Printf("Starting listener on %s", *listen)
@@ -36,13 +38,12 @@ func receiverCli() {
 
 	writer, err := receiver.NewFileWriter(*targetPath)
 	if err != nil {
-		log.Fatal("Could not setup FileWriter:", err.Error())
+		return fmt.Errorf("could not setup FileWriter: %s", err)
 	}
 
 	r := receiver.NewReceiver(*listen, writer)
-	err = r.Open()
-	if err != nil {
-		log.Fatal("Could not open listener:", err.Error())
+	if err = r.Open(); err != nil {
+		return fmt.Errorf("could not open listener: %s", err)
 	}
 
 	signals := make(chan os.Signal, 1)
@@ -65,24 +66,27 @@ func receiverCli() {
 
 	<-done
 	log.Println("Exiting daemon")
+	return nil
 }
 
-func senderCli() {
-	cmd := flag.NewFlagSet(os.Args[0]+" sender", flag.ExitOnError)
+func senderCli(cmdName string, args []string) error {
+	cmd := flag.NewFlagSet(cmdName+" sender", flag.ContinueOnError)
 	connect := cmd.String("connect", "", "Send to this TCP address")
 	sourcePath := cmd.String("source", "", "Source path to read from")
 
-	_ = cmd.Parse(os.Args[2:])
+	if err := cmd.Parse(args); err != nil {
+		return err
+	}
 
 	if flag.NArg() > 0 {
-		log.Fatalf("Found extra arguments: %v", flag.Args())
+		return fmt.Errorf("found extra arguments: %v", flag.Args())
 	}
 
 	if *connect == "" {
-		log.Fatal("Please specify --connect")
+		return fmt.Errorf("please specify --connect")
 	}
 	if *sourcePath == "" {
-		log.Fatal("Please specify --source")
+		return fmt.Errorf("please specify --source")
 	}
 
 	log.Printf("Starting sender to %s", *connect)
@@ -90,7 +94,7 @@ func senderCli() {
 
 	r, err := sender.NewFileReader(*sourcePath)
 	if err != nil {
-		log.Fatal("Could not set up FileReader: ", err)
+		return fmt.Errorf("could not set up FileReader: %s", err)
 	}
 
 	signals := make(chan os.Signal, 1)
@@ -114,6 +118,7 @@ func senderCli() {
 
 	<-done
 	log.Println("Exiting sender")
+	return nil
 }
 
 func main() {
@@ -122,12 +127,22 @@ func main() {
 		os.Exit(2)
 	}
 
+	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+
+	cmd := os.Args[0]
+	args := os.Args[2:]
+	var err error
+
 	switch os.Args[1] {
 	case "receiver":
-		receiverCli()
+		err = receiverCli(cmd, args)
 	case "sender":
-		senderCli()
+		err = senderCli(cmd, args)
 	default:
-		log.Fatal("Unknown mode:", os.Args[1])
+		err = fmt.Errorf("unknown mode: %s", os.Args[1])
+	}
+
+	if err != nil {
+		log.Fatal(err)
 	}
 }
