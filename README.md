@@ -7,11 +7,11 @@ The idea is to be as minimalistic as possible without using tools like rsync or 
 
 ## Installation
 
-    $ go get github.com/lazyfrosch/filespooler
+    $ go get github.com/lazyfrosch/filespooler/cmd/filespooler
     
     $ git clone https://github.com/lazyfrosch/filespooler
     $ cd filespooler/
-    $ go build .
+    $ go build ./cmd/filespooler
     $ ./filespooler
 
 ## Usage

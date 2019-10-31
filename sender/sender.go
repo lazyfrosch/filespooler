@@ -1,8 +1,10 @@
 package sender
 
 import (
+	"crypto/tls"
 	"encoding/gob"
 	"fmt"
+	"github.com/lazyfrosch/filespooler/util"
 	"log"
 	"net"
 	"time"
@@ -11,31 +13,57 @@ import (
 const (
 	ConnectTimeout    = 5
 	KeepaliveInterval = 10
-	ReconnectInterval = 30
 	FileCheckInterval = 5
 	DataTimeout       = 5
 )
 
 type Sender struct {
-	addr   string
-	conn   net.Conn
-	reader *FileReader
-	quit   chan bool
+	addr      string
+	conn      net.Conn
+	reader    *FileReader
+	quit      chan bool
+	TlsConfig *tls.Config
 }
 
 func NewSender(addr string, reader *FileReader) *Sender {
-	return &Sender{addr, nil, reader, nil}
+	return &Sender{addr, nil, reader, nil, nil}
 }
 
 func (s *Sender) Open() error {
 	log.Printf("Connecting to %s", s.addr)
+
+	_, err := net.ResolveTCPAddr("tcp", s.addr)
+	if err != nil {
+		return fmt.Errorf("could not parse address %s: %s", s.addr, err)
+	}
 
 	conn, err := net.DialTimeout("tcp", s.addr, ConnectTimeout*time.Second)
 	if err != nil {
 		return fmt.Errorf("could not connect to %s: %s", s.addr, err)
 	}
 
-	s.conn = conn
+	if s.TlsConfig != nil {
+		var tlsConn *tls.Conn
+
+		err := conn.SetReadDeadline(time.Now().Add(ConnectTimeout * time.Second))
+		if err != nil {
+			return fmt.Errorf("could not set deadline: %s", err)
+		}
+
+		s.TlsConfig.ServerName = util.GetNameFromTCPAddr(s.addr)
+
+		tlsConn = tls.Client(conn, s.TlsConfig)
+
+		err = tlsConn.Handshake()
+		if err != nil {
+			_ = conn.Close()
+			return fmt.Errorf("TLS Handshake failed: %s", err)
+		}
+
+		s.conn = tlsConn
+	} else {
+		s.conn = conn
+	}
 
 	return nil
 }
@@ -58,24 +86,24 @@ func (s *Sender) setTimeout() {
 func (s *Sender) Run() {
 	s.quit = make(chan bool)
 
-	reconnect := time.NewTicker(ReconnectInterval * time.Second)
 	keepalive := time.NewTicker(KeepaliveInterval * time.Second)
 	checkFiles := time.NewTicker(FileCheckInterval * time.Second)
 
-	if s.conn == nil {
-		s.Reconnect()
-	}
-
 	for {
+		if s.conn == nil {
+			s.Reconnect()
+		}
+
+		if err := s.SendFiles(); err != nil {
+			log.Printf("error sending files: %s", err)
+			s.Reconnect()
+		}
+
 		select {
 		case <-s.quit:
 			return
-		case <-reconnect.C:
-			if s.conn == nil {
-				s.Reconnect()
-			}
 		case <-keepalive.C:
-			if s.conn != nil {
+			if s.conn == nil {
 				continue
 			}
 
@@ -85,14 +113,7 @@ func (s *Sender) Run() {
 				s.Reconnect()
 			}
 		case <-checkFiles.C:
-			if s.conn == nil {
-				continue
-			}
-
-			if err := s.SendFiles(); err != nil {
-				log.Printf("error sending files: %s", err)
-				s.Reconnect()
-			}
+			continue
 		}
 	}
 }
@@ -116,6 +137,8 @@ func (s *Sender) SendFiles() error {
 		if err := enc.Encode(file); err != nil {
 			return fmt.Errorf("could not send encoded data: %s", err)
 		}
+
+		// TODO: handle response
 
 		// Delete file when it was sent
 		err = s.reader.Delete(file.RawName)

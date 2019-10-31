@@ -61,7 +61,7 @@ NETWAYS File Spooler to transport spooled files between servers.
 %setup -q -n %{name}-%{commit}
 
 %build
-%gobuild .
+%gobuild ./cmd/filespooler
 
 %check
 %if ! 0%{?gotest:1}

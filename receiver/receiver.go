@@ -2,6 +2,7 @@ package receiver
 
 import (
 	"bufio"
+	"crypto/tls"
 	"fmt"
 	"github.com/lazyfrosch/filespooler/sender"
 	"io"
@@ -18,18 +19,19 @@ const (
 )
 
 type Receiver struct {
-	bind     string
-	listener *net.TCPListener
-	writer   *FileWriter
-	running  bool
-	quit     chan bool
-	exited   chan bool
+	bind      string
+	listener  *net.TCPListener
+	writer    *FileWriter
+	running   bool
+	quit      chan bool
+	exited    chan bool
+	TlsConfig *tls.Config
 }
 
 func NewReceiver(bind string, writer *FileWriter) *Receiver {
 	return &Receiver{
 		bind, nil, writer, false,
-		make(chan bool), make(chan bool)}
+		make(chan bool), make(chan bool), nil}
 }
 
 func (r *Receiver) Open() error {
@@ -79,9 +81,34 @@ func (r *Receiver) Serve() {
 				continue
 			}
 
+			var tlsConn *tls.Conn
+			if r.TlsConfig != nil {
+				remote := conn.RemoteAddr().String()
+				err := conn.SetReadDeadline(time.Now().Add(ReadTimeout * time.Second))
+				if err != nil {
+					log.Printf("[%s] Could not set deadline: %s", remote, err)
+					return
+				}
+
+				tlsConn = tls.Server(conn, r.TlsConfig)
+
+				err = tlsConn.Handshake()
+				if err != nil {
+					log.Printf("[%s] TLS Handshake failed: %s", remote, err)
+					_ = conn.Close()
+					continue
+				}
+
+				// TODO: authenticate peer
+			}
+
 			handlers.Add(1)
 			go func() {
-				r.handleConnection(conn)
+				if tlsConn != nil {
+					r.handleConnection(tlsConn)
+				} else {
+					r.handleConnection(conn)
+				}
 				handlers.Done()
 			}()
 		}

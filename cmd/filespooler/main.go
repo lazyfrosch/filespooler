@@ -3,23 +3,41 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/Showmax/go-fqdn"
 	"github.com/lazyfrosch/filespooler/receiver"
 	"github.com/lazyfrosch/filespooler/sender"
+	"github.com/lazyfrosch/filespooler/util"
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 )
 
 const (
-	// DefaultListen is the default TCP port to use
-	DefaultListen = ":5664"
+	// DefaultPort is the default TCP port to use
+	DefaultPort = "5664"
 )
 
+func buildFlagSet(command string) *flag.FlagSet {
+	return flag.NewFlagSet(os.Args[0]+" "+command, flag.ContinueOnError)
+}
+
+func askForTLSSettings(set *flag.FlagSet) (*string, *string, *string) {
+	config := "etc/" // TODO: better handling
+	hostname := fqdn.Get()
+
+	return set.String("cert", config+"/"+hostname+".crt", "TLS x509 certificate"),
+		set.String("key", config+"/"+hostname+".key", "TLS private key for the certificate"),
+		set.String("capath", "", "CA Root certificates file")
+}
+
 func receiverCli(cmdName string, args []string) error {
-	cmd := flag.NewFlagSet(cmdName+" receiver", flag.ContinueOnError)
-	listen := cmd.String("listen", DefaultListen, "Listen to this address")
+	cmd := buildFlagSet(cmdName + "receiver")
+	listen := cmd.String("listen", ":"+DefaultPort, "Listen to this address")
 	targetPath := cmd.String("target", "", "Target path to write to")
+
+	tlsCert, tlsKey, caPath := askForTLSSettings(cmd)
 
 	if err := cmd.Parse(args); err != nil {
 		return err
@@ -33,6 +51,26 @@ func receiverCli(cmdName string, args []string) error {
 		return fmt.Errorf("please specify --target")
 	}
 
+	if *tlsCert == "" {
+		return fmt.Errorf("please specify --cert")
+	}
+	if *tlsKey == "" {
+		return fmt.Errorf("please specify --key")
+	}
+
+	config := util.TlsConfig{
+		CertPath: tlsCert,
+		KeyPath:  tlsKey,
+	}
+	if caPath != nil && *caPath != "" {
+		config.CAPath = caPath
+	}
+
+	tlsConfig, err := config.GetConfig()
+	if err != nil {
+		return err
+	}
+
 	log.Printf("Starting listener on %s", *listen)
 	log.Printf("Spooling data to %s", *targetPath)
 
@@ -42,6 +80,7 @@ func receiverCli(cmdName string, args []string) error {
 	}
 
 	r := receiver.NewReceiver(*listen, writer)
+	r.TlsConfig = tlsConfig
 	if err = r.Open(); err != nil {
 		return fmt.Errorf("could not open listener: %s", err)
 	}
@@ -74,6 +113,8 @@ func senderCli(cmdName string, args []string) error {
 	connect := cmd.String("connect", "", "Send to this TCP address")
 	sourcePath := cmd.String("source", "", "Source path to read from")
 
+	tlsCert, tlsKey, caPath := askForTLSSettings(cmd)
+
 	if err := cmd.Parse(args); err != nil {
 		return err
 	}
@@ -87,6 +128,30 @@ func senderCli(cmdName string, args []string) error {
 	}
 	if *sourcePath == "" {
 		return fmt.Errorf("please specify --source")
+	}
+
+	if *tlsCert == "" {
+		return fmt.Errorf("please specify --cert")
+	}
+	if *tlsKey == "" {
+		return fmt.Errorf("please specify --key")
+	}
+
+	if !strings.Contains(*connect, ":") {
+		*connect = *connect + ":" + DefaultPort
+	}
+
+	config := util.TlsConfig{
+		CertPath: tlsCert,
+		KeyPath:  tlsKey,
+	}
+	if caPath != nil && *caPath != "" {
+		config.CAPath = caPath
+	}
+
+	tlsConfig, err := config.GetConfig()
+	if err != nil {
+		return err
 	}
 
 	log.Printf("Starting sender to %s", *connect)
@@ -104,6 +169,7 @@ func senderCli(cmdName string, args []string) error {
 	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT)
 
 	s := sender.NewSender(*connect, r)
+	s.TlsConfig = tlsConfig
 
 	go func() {
 		sig := <-signals
