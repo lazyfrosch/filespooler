@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"github.com/Showmax/go-fqdn"
@@ -29,13 +30,16 @@ func askForTLSSettings(set *flag.FlagSet) (*string, *string, *string) {
 
 	return set.String("cert", config+"/"+hostname+".crt", "TLS x509 certificate"),
 		set.String("key", config+"/"+hostname+".key", "TLS private key for the certificate"),
-		set.String("capath", "", "CA Root certificates file")
+		set.String("capath", config+"/ca.crt", "CA Root certificates file")
 }
 
 func receiverCli(cmdName string, args []string) error {
-	cmd := buildFlagSet(cmdName + "receiver")
+	cmd := buildFlagSet("receiver")
 	listen := cmd.String("listen", ":"+DefaultPort, "Listen to this address")
 	targetPath := cmd.String("target", "", "Target path to write to")
+
+	var peerNames util.ArrayFlags
+	cmd.Var(&peerNames, "allow", "Allowed client certificate names, can be repeated to build a list")
 
 	tlsCert, tlsKey, caPath := askForTLSSettings(cmd)
 
@@ -58,18 +62,24 @@ func receiverCli(cmdName string, args []string) error {
 		return fmt.Errorf("please specify --key")
 	}
 
+	if len(peerNames) == 0 {
+		return fmt.Errorf("please specify one or more --allow")
+	}
+
 	config := util.TlsConfig{
+		CAPath:   caPath,
 		CertPath: tlsCert,
 		KeyPath:  tlsKey,
-	}
-	if caPath != nil && *caPath != "" {
-		config.CAPath = caPath
 	}
 
 	tlsConfig, err := config.GetConfig()
 	if err != nil {
 		return err
 	}
+
+	// Enable client auth
+	// TODO: allow insecure?
+	tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
 
 	log.Printf("Starting listener on %s", *listen)
 	log.Printf("Spooling data to %s", *targetPath)
@@ -81,6 +91,8 @@ func receiverCli(cmdName string, args []string) error {
 
 	r := receiver.NewReceiver(*listen, writer)
 	r.TlsConfig = tlsConfig
+	r.PeerNames = peerNames
+
 	if err = r.Open(); err != nil {
 		return fmt.Errorf("could not open listener: %s", err)
 	}
@@ -109,7 +121,7 @@ func receiverCli(cmdName string, args []string) error {
 }
 
 func senderCli(cmdName string, args []string) error {
-	cmd := flag.NewFlagSet(cmdName+" sender", flag.ContinueOnError)
+	cmd := flag.NewFlagSet("sender", flag.ContinueOnError)
 	connect := cmd.String("connect", "", "Send to this TCP address")
 	sourcePath := cmd.String("source", "", "Source path to read from")
 
@@ -142,11 +154,9 @@ func senderCli(cmdName string, args []string) error {
 	}
 
 	config := util.TlsConfig{
+		CAPath:   caPath,
 		CertPath: tlsCert,
 		KeyPath:  tlsKey,
-	}
-	if caPath != nil && *caPath != "" {
-		config.CAPath = caPath
 	}
 
 	tlsConfig, err := config.GetConfig()

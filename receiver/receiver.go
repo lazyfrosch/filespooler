@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"github.com/lazyfrosch/filespooler/sender"
+	"github.com/lazyfrosch/filespooler/util"
 	"io"
 	"log"
 	"net"
@@ -26,6 +27,7 @@ type Receiver struct {
 	quit      chan bool
 	exited    chan bool
 	TlsConfig *tls.Config
+	PeerNames []string
 }
 
 func NewReceiver(bind string, writer *FileWriter) *Receiver {
@@ -100,7 +102,19 @@ func (r *Receiver) Serve() {
 					continue
 				}
 
-				// TODO: authenticate peer
+				// authenticate peer against whitelist
+				state := tlsConn.ConnectionState()
+				if len(state.PeerCertificates) > 0 {
+					clientCert := state.PeerCertificates[0]
+
+					if ok, name := util.ValidateNamesOnCertificate(clientCert, r.PeerNames); ok {
+						log.Printf("[%s] client cert accepted with name %s", remote, name)
+					} else {
+						log.Printf("[%s] client cert names did not match whitelist: %s", remote, r.PeerNames)
+						_ = conn.Close()
+						continue
+					}
+				}
 			}
 
 			handlers.Add(1)
@@ -118,12 +132,12 @@ func (r *Receiver) Serve() {
 
 func (r *Receiver) handleConnection(conn net.Conn) {
 	remote := conn.RemoteAddr()
-	log.Println("Accepted connection from", remote)
+	log.Printf("[%s] accepted new connection", remote)
 
 	timer := time.NewTimer(CommunicationTimeout * time.Second)
 
 	defer func() {
-		log.Println("Closing connection from", remote)
+		log.Printf("[%s] closing connection", remote)
 		_ = conn.Close()
 		timer.Stop()
 	}()

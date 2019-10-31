@@ -120,8 +120,9 @@ func (s *Sender) Run() {
 			if _, err := s.rw.WriteString("KEEPALIVE\n"); err != nil {
 				log.Printf("error sending keepalive: %s", err)
 				s.Reconnect()
+			} else {
+				_ = s.rw.Flush()
 			}
-			_ = s.rw.Flush()
 		case <-checkFiles.C:
 			continue
 		}
