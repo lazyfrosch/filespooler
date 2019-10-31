@@ -1,12 +1,14 @@
 package sender
 
 import (
+	"bufio"
 	"crypto/tls"
 	"encoding/gob"
 	"fmt"
 	"github.com/lazyfrosch/filespooler/util"
 	"log"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -23,10 +25,14 @@ type Sender struct {
 	reader    *FileReader
 	quit      chan bool
 	TlsConfig *tls.Config
+	rw        *bufio.ReadWriter
 }
 
 func NewSender(addr string, reader *FileReader) *Sender {
-	return &Sender{addr, nil, reader, nil, nil}
+	return &Sender{
+		addr:   addr,
+		reader: reader,
+	}
 }
 
 func (s *Sender) Open() error {
@@ -65,6 +71,8 @@ func (s *Sender) Open() error {
 		s.conn = conn
 	}
 
+	s.rw = bufio.NewReadWriter(bufio.NewReader(s.conn), bufio.NewWriter(s.conn))
+
 	return nil
 }
 
@@ -72,6 +80,7 @@ func (s *Sender) Reconnect() {
 	if s.conn != nil {
 		_ = s.conn.Close()
 		s.conn = nil
+		s.rw = nil
 	}
 
 	if err := s.Open(); err != nil {
@@ -92,11 +101,11 @@ func (s *Sender) Run() {
 	for {
 		if s.conn == nil {
 			s.Reconnect()
-		}
-
-		if err := s.SendFiles(); err != nil {
-			log.Printf("error sending files: %s", err)
-			s.Reconnect()
+		} else {
+			if err := s.SendFiles(); err != nil {
+				log.Printf("error sending files: %s", err)
+				s.Reconnect()
+			}
 		}
 
 		select {
@@ -108,10 +117,11 @@ func (s *Sender) Run() {
 			}
 
 			s.setTimeout()
-			if _, err := s.conn.Write([]byte("KEEPALIVE\n")); err != nil {
+			if _, err := s.rw.WriteString("KEEPALIVE\n"); err != nil {
 				log.Printf("error sending keepalive: %s", err)
 				s.Reconnect()
 			}
+			_ = s.rw.Flush()
 		case <-checkFiles.C:
 			continue
 		}
@@ -129,21 +139,35 @@ func (s *Sender) SendFiles() error {
 
 		log.Printf("Sending file %s", file.RawName)
 
-		if _, err := s.conn.Write([]byte("SEND_FILE\n")); err != nil {
+		if _, err := s.rw.WriteString("SEND_FILE\n"); err != nil {
 			return fmt.Errorf("could not sent command: %s", err)
 		}
 
-		enc := gob.NewEncoder(s.conn)
+		enc := gob.NewEncoder(s.rw)
 		if err := enc.Encode(file); err != nil {
 			return fmt.Errorf("could not send encoded data: %s", err)
 		}
 
-		// TODO: handle response
-
-		// Delete file when it was sent
-		err = s.reader.Delete(file.RawName)
+		err = s.rw.Flush()
 		if err != nil {
-			return err
+			return fmt.Errorf("could not flush data: %s", err)
+		}
+
+		s.setTimeout()
+		response, err := s.rw.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("error waiting for response for sent file: %s", err)
+		}
+
+		response = strings.Trim(response, "\n")
+		if response == "OK" {
+			// Delete file when it was sent
+			err = s.reader.Delete(file.RawName)
+			if err != nil {
+				return err
+			}
+		} else {
+			return fmt.Errorf("peer did not acknowledge file and returned: %s", response)
 		}
 	}
 
@@ -158,6 +182,7 @@ func (s *Sender) Close() error {
 	if s.conn != nil {
 		err := s.conn.Close()
 		s.conn = nil
+		s.rw = nil
 		if err != nil {
 			return err
 		}

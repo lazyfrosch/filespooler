@@ -30,8 +30,9 @@ type Receiver struct {
 
 func NewReceiver(bind string, writer *FileWriter) *Receiver {
 	return &Receiver{
-		bind, nil, writer, false,
-		make(chan bool), make(chan bool), nil}
+		bind:   bind,
+		writer: writer,
+	}
 }
 
 func (r *Receiver) Open() error {
@@ -171,7 +172,7 @@ func (r *Receiver) handleConnection(conn net.Conn) {
 				// resetting timeout
 				timer.Reset(CommunicationTimeout * time.Second)
 			default:
-				log.Printf("[%s] Unknown command %s", remote, cmd)
+				log.Printf("[%s] Unknown command: %s", remote, cmd)
 			}
 		}
 	}
@@ -188,11 +189,23 @@ func (r *Receiver) handleSendFile(conn net.Conn, rw *bufio.ReadWriter) error {
 
 	err = r.writer.WriteFile(file)
 	if err != nil {
-		_, _ = rw.WriteString("ERR\n")
+		_, err = rw.WriteString("ERR\n")
+		if err != nil {
+			return fmt.Errorf("could not write ERR response: %s", err)
+		}
 		return fmt.Errorf("[%s] Could not write file: %s", remote, err)
 	}
 
-	_, _ = rw.WriteString("OK\n")
+	_, err = rw.WriteString("OK\n")
+	if err != nil {
+		return fmt.Errorf("could not write OK response: %s", err)
+	}
+
+	err = rw.Flush()
+	if err != nil {
+		return fmt.Errorf("error flushing buffer: %s", err)
+	}
+
 	return nil
 }
 
